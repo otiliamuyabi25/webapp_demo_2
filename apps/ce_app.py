@@ -3,15 +3,18 @@ import streamlit as st
 import geopandas as gpd
 import geemap.foliumap as geemap
 from folium.plugins import MeasureControl # Module to add measure control to map
-from apps import ee_functions, variables, soil_functions
+from apps import ee_functions, variables ,  soil_functions 
 
 # Add C&E farms
 farms_gdf = variables.get_farms_gdf()
-
 def app():
     """This function adds the app that dispace the C&E crop health and soil properties
     """
-    # Define tabs for app
+    # # Define tabs for app
+    # individual_health_tab, compare_tab, soil_tab , individual_health_2_tab = st.tabs(
+    #     ["Individual Health", "Compare Health", "Soil Properties", "Individual Health 2"]
+    #     )
+        # Define tabs for app
     individual_health_tab, compare_tab, soil_tab = st.tabs(
         ["Individual Health", "Compare Health", "Soil Properties"]
         )
@@ -26,7 +29,36 @@ def app():
 
         # Add dropdowns for the first column
         with initial_col:
-            selected_farm_name, selected_index, selected_range_start_date, selected_range_end_date, max_cloud_cover = variables.add_selectors_crop_health()
+            selected_year, selected_farm_name, selected_index, selected_range_start_date, selected_range_end_date, max_cloud_cover = variables.add_selectors_crop_health()
+
+            # st.write(f"selected available image date : {selected_range_start_date} to {selected_range_end_date}")
+
+        with initial_col:
+            # Filter farms by year for downstream widgets and maps
+            if selected_year is not None:
+                farms_filtered_by_year = farms_gdf[farms_gdf["year"] == selected_year]
+                if farms_filtered_by_year.empty:
+                    farms_filtered_by_year = farms_gdf
+            else:
+                farms_filtered_by_year = farms_gdf
+
+            # Helper to get the selected farm while respecting the year filter first
+            def get_selected_farm_gdf():
+                if selected_farm_name is None:
+                    return None
+                if selected_year is not None:
+                    filtered = farms_gdf[
+                        (farms_gdf["farmer"] == selected_farm_name)
+                        & (farms_gdf["year"] == selected_year)
+                    ]
+                    if not filtered.empty:
+                        return filtered
+                fallback = farms_gdf[farms_gdf["farmer"] == selected_farm_name]
+                return fallback if not fallback.empty else None
+
+            selected_farm_gdf = get_selected_farm_gdf()
+
+        available_image_dates_list = []
 
         with st.spinner(f"Getting available images for {selected_farm_name}...", show_time=True): # Display spinner while this block of code is being executed
             # Add dropdown for the second column
@@ -42,9 +74,6 @@ def app():
 
                 # Populate available images date dropdown when farm name is selected
                 else:
-                    # Extract gdf for the selected farm name
-                    selected_farm_gdf = farms_gdf[farms_gdf["farmer"] == selected_farm_name]
-
                     # Get image collection for selected farm within the default date range
                     image_collection = ee_functions.get_available_images(
                         selected_farm_gdf,
@@ -56,171 +85,175 @@ def app():
                     # Get list of available images from the image collection
                     available_image_dates_list = ee_functions.available_imagery_dates_list(image_collection)
 
-                    # Add available image 
-                    selected_available_image_date = st.selectbox(
-                        "Select the image date",
-                        available_image_dates_list,
-                        index=0 # Selects the first image date from the list
+                    if not available_image_dates_list:
+                        st.info("No imagery available for the selected filters yet.")
+                        selected_available_image_date = None
+                    else:
+                        # Add available image 
+                        selected_available_image_date = st.selectbox(
+                            "Select the image date",
+                            available_image_dates_list,
+                            index=0 # Selects the first image date from the list
+                            )
+
+        if selected_farm_name is not None and selected_available_image_date is None:
+            st.info("Select a different year, farm, or date range to see available imagery.")
+
+        # Display basic map if farm name and metric/index is not selected
+        if (selected_farm_name is None and selected_index is None) or (selected_farm_name is None and selected_index is not None):
+            # Add map to display
+            m = geemap.Map(
+                control_scale=True, # Add scale (control) in map
+                draw_control=False,
+                layer_control=False
+                )
+
+            # Add map button to measure distance and area
+            m.add_child(MeasureControl(
+                primary_length_unit='kilometers',
+                secondary_length_unit='meters',
+                primary_area_unit='sqmeters',
+                secondary_area_unit='hectares'
+            ))
+
+            m.zoom_to_gdf(farms_filtered_by_year) # Zoom to extents of filtered farms
+            m.add_gdf(farms_filtered_by_year, layer_name="Farms") # Add filtered farms to the map
+            m.to_streamlit(height=550) # Show map on display with height of 550
+
+        # Add functionalities when the farm is selected and imagery is available
+        elif selected_farm_name is not None and selected_available_image_date is not None:
+            # Buffer the gdf for the selected farm
+            buffered_selected_farm_gdf = ee_functions.get_buffered_farm_gdf(selected_farm_gdf)
+
+            # Get the start and end dates around the selected image date
+            selected_start_date, selected_end_date = ee_functions.selected_date_range(selected_available_image_date)
+
+            # Get true color image
+            true_color_image = ee_functions.get_available_image(
+                selected_farm_gdf,
+                selected_start_date,
+                selected_end_date,
+                max_cloud_cover
+                )
+
+            # Get true color visparams
+            true_color_visparams = ee_functions.get_vis_params("True Color")
+
+            # Get date for true color image
+            image_date = ee_functions.get_imagery_date(true_color_image)
+
+            # Add map to the display
+            m = geemap.Map(control_scale=True, draw_control=False, layer_control=False)
+
+            # Redefine function to add ee layer to map
+            m.add_ee_layer = ee_functions.add_ee_layer.__get__(m)
+
+            # Add button to measure distances and areas on the map
+            m.add_child(MeasureControl(
+                primary_length_unit='kilometers',
+                secondary_length_unit='meters',
+                primary_area_unit='hectares',
+                secondary_area_unit='sqmeters'
+            ))
+
+            # Add true color image to the map
+            m.add_ee_layer(
+                true_color_image, 
+                visparams=true_color_visparams,
+                name='True Color'
+                )
+
+            # Add functionalities when both the farm and metric/index is selected
+            if selected_farm_name is not None and selected_index is not None:
+                with st.spinner(f"Calculating {selected_index.lower()}...", show_time=True):
+                    # Get image with calculated index from true color image
+                    calculated_index_image = ee_functions.calculate_index(
+                        selected_index,
+                        true_color_image
                         )
 
-            # Display basic map if farm name and metric/index is not selected
-            if (selected_farm_name is None and selected_index is None) or (selected_farm_name is None and selected_index is not None):
-                # Add map to display
-                m = geemap.Map(
-                    control_scale=True, # Add scale (control) in map
-                    draw_control=False,
-                    layer_control=False
-                    )
-
-                # Add map button to measure distance and area
-                m.add_child(MeasureControl(
-                    primary_length_unit='kilometers',
-                    secondary_length_unit='meters',
-                    primary_area_unit='sqmeters',
-                    secondary_area_unit='hectares'
-                ))
-
-                m.zoom_to_gdf(farms_gdf) # Zoom to extents of all C&E farms
-                m.add_gdf(farms_gdf, layer_name="Farms") # Add all C&E farms to the map
-                m.to_streamlit(height=550) # Show map on display with height of 550
-
-            # Add functionalities when the farm is selected
-            elif selected_farm_name is not None:
-                # Extract gdf for the selected farm
-                selected_farm_gdf = farms_gdf[farms_gdf["farmer"] == selected_farm_name]
-
-                # Buffer the gdf for the selected farm
-                buffered_selected_farm_gdf = ee_functions.get_buffered_farm_gdf(selected_farm_gdf)
-
-                # Get the start and end dates around the selected image date
-                selected_start_date, selected_end_date = ee_functions.selected_date_range(selected_available_image_date)
-
-                # Get true color image
-                true_color_image = ee_functions.get_available_image(
-                    selected_farm_gdf,
-                    selected_start_date,
-                    selected_end_date,
-                    max_cloud_cover
-                    )
-
-                # Get true color visparams
-                true_color_visparams = ee_functions.get_vis_params("True Color")
-
-                # Get date for true color image
-                image_date = ee_functions.get_imagery_date(true_color_image)
-
-                # Add map to the display
-                m = geemap.Map(control_scale=True, draw_control=False, layer_control=False)
-
-                # Redefine function to add ee layer to map
-                m.add_ee_layer = ee_functions.add_ee_layer.__get__(m)
-
-                # Add button to measure distances and areas on the map
-                m.add_child(MeasureControl(
-                    primary_length_unit='kilometers',
-                    secondary_length_unit='meters',
-                    primary_area_unit='hectares',
-                    secondary_area_unit='sqmeters'
-                ))
-
-                # Add true color image to the map
-                m.add_ee_layer(
-                    true_color_image, 
-                    visparams=true_color_visparams,
-                    name='True Color'
-                    )
-
-                # Add functionalities when both the farm and metric/index is selected
-                if selected_farm_name is not None and selected_index is not None:
-                    with st.spinner(f"Calculating {selected_index.lower()}...", show_time=True):
-                        # Get image with calculated index from true color image
-                        calculated_index_image = ee_functions.calculate_index(
-                            selected_index,
-                            true_color_image
-                            )
-
-                        # Classify/group the calculated index based on the index values
-                        classified_index_image = ee_functions.classifiy_index_values(
-                            selected_farm_gdf,
-                            calculated_index_image,
-                            selected_index
-                            )
-
-                    # Get visualisation parameters for the classified image
-                    selected_index_visparams = ee_functions.get_vis_params(selected_index)
-
-                    # Get the labels and colors for the legend
-                    legend_labels, legend_colors = ee_functions.legend_params(selected_index)
-
-                    # Get the df with the chart metrics for the selected index
-                    fig_df = ee_functions.area_chart_df(
+                    # Classify/group the calculated index based on the index values
+                    classified_index_image = ee_functions.classifiy_index_values(
                         selected_farm_gdf,
-                        classified_index_image,
+                        calculated_index_image,
                         selected_index
                         )
 
-                    # Get chart to display crop metrics from the df
-                    chart = ee_functions.altair_chart(fig_df, selected_index)
+                # Get visualisation parameters for the classified image
+                selected_index_visparams = ee_functions.get_vis_params(selected_index)
 
-                    # Expander that holds the chart
-                    with st.expander(f"View {selected_index} metrics..."):
-                        with st.spinner("Calculating metrics...", show_time=True):
-                            # Define column containers to hold the charts
-                            bar_chart_col, col2 = st.columns([4,1]) # [4,1] is the ratio for the column sizes
+                # Get the labels and colors for the legend
+                legend_labels, legend_colors = ee_functions.legend_params(selected_index)
 
-                            # Add the chart to column 1
-                            with bar_chart_col:
-                                # Display chart to display crop metrics
-                                st.altair_chart(chart)
+                # Get the df with the chart metrics for the selected index
+                fig_df = ee_functions.area_chart_df(
+                    selected_farm_gdf,
+                    classified_index_image,
+                    selected_index
+                    )
 
-                            # Column 2 can be used to add addtional charts 
-                            # (e.g. trends) if necessary
+                # Get chart to display crop metrics from the df
+                chart = ee_functions.altair_chart(fig_df, selected_index)
 
-                    with st.spinner(f"Adding {selected_index.lower()} to map...", show_time=True):
-                        # Add the classified image to the map
-                        m.add_ee_layer(
-                            classified_index_image,
-                            visparams= selected_index_visparams,
-                            name= selected_index
-                            )
+                # Expander that holds the chart
+                with st.expander(f"View {selected_index} metrics..."):
+                    with st.spinner("Calculating metrics...", show_time=True):
+                        # Define column containers to hold the charts
+                        bar_chart_col, col2 = st.columns([4,1]) # [4,1] is the ratio for the column sizes
 
-                    # Dictionary that pairs the legend color to the corresponding label
-                    legend_dict = dict(zip(legend_labels, legend_colors))
+                        # Add the chart to column 1
+                        with bar_chart_col:
+                            # Display chart to display crop metrics
+                            st.altair_chart(chart)
 
-                    # Add legend to the map
-                    soil_functions.add_categorical_legend(
-                        m, selected_index,
-                        list(legend_dict.values()),
-                        list(legend_dict.keys())
+                        # Column 2 can be used to add addtional charts 
+                        # (e.g. trends) if necessary
+
+                with st.spinner(f"Adding {selected_index.lower()} to map...", show_time=True):
+                    # Add the classified image to the map
+                    m.add_ee_layer(
+                        classified_index_image,
+                        visparams= selected_index_visparams,
+                        name= selected_index
                         )
 
-                    # Easier way to add legend but gives error sometimes
-                    # m.add_legend(
-                    #     labels=legend_labels,
-                    #     colors=legend_colors,
-                    #     position="bottomright",
-                    #     title= selected_index,
-                    #     draggable=True
-                    #     )
+                # Dictionary that pairs the legend color to the corresponding label
+                legend_dict = dict(zip(legend_labels, legend_colors))
 
-                # Display the selected farm boundary on the map
-                m.add_gdf(selected_farm_gdf, layer_name="Farm")
+                # Add legend to the map
+                soil_functions.add_categorical_legend(
+                    m, selected_index,
+                    list(legend_dict.values()),
+                    list(legend_dict.keys())
+                    )
 
-                # Zoom to the buffered farm to the map
-                m.zoom_to_gdf(buffered_selected_farm_gdf)
+                # Easier way to add legend but gives error sometimes
+                # m.add_legend(
+                #     labels=legend_labels,
+                #     colors=legend_colors,
+                #     position="bottomright",
+                #     title= selected_index,
+                #     draggable=True
+                #     )
 
-                # Add date for the selected image to the map
-                m.add_text(image_date, position="topright", fontsize= 16, bold=True)
+            # Display the selected farm boundary on the map
+            m.add_gdf(selected_farm_gdf, layer_name="Farm")
 
-                # Display the map in streamlit
-                m.to_streamlit(height=550)
+            # Zoom to the buffered farm to the map
+            m.zoom_to_gdf(buffered_selected_farm_gdf)
+
+            # Add date for the selected image to the map
+            m.add_text(image_date, position="topright", fontsize= 16, bold=True)
+
+            # Display the map in streamlit
+            m.to_streamlit(height=550)
 
     # Start of compare health tab
     with compare_tab:
         st.header("Compare Crop Health") # Tab header
 
         # Add dropdowns and filters
-        selected_farm_name, selected_index, selected_start_date, selected_end_date, max_cloud_cover = variables.add_selectors_crop_monitor(backtrack_days=60)
+        selected_year, selected_farm_name, selected_index, selected_start_date, selected_end_date, max_cloud_cover = variables.add_selectors_crop_monitor(backtrack_days=60)
 
         # Get gdf for the selected farm
         selected_farm_gdf = farms_gdf[farms_gdf["farmer"] == selected_farm_name]
