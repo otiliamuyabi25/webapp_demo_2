@@ -293,7 +293,7 @@ def app():
                 if selected_fs_gdf is None:
                     st.info("No geometry found for the selected FS catchment.")
                 else:
-                    image_collection = ee_functions.get_available_images(
+                    image_collection = ee_function2s.get_available_images(
                         selected_fs_gdf,
                         selected_start_date,
                         selected_end_date,
@@ -301,7 +301,7 @@ def app():
                     )
 
                     available_image_dates_list = (
-                        ee_functions.available_imagery_dates_list(image_collection)
+                        ee_functions2.available_imagery_dates_list(image_collection)
                     )
 
                     if not available_image_dates_list:
@@ -348,16 +348,16 @@ def app():
             st.warning("Unable to load the selected FS catchment geometry.")
             return
 
-        buffered_selected_fs_gdf = ee_functions.get_buffered_farm_gdf(selected_fs_gdf)
+        buffered_selected_fs_gdf = ee_functions2.get_buffered_farm_gdf(selected_fs_gdf)
 
         # For large FS catchments, single Sentinel‑2 tiles might not cover
         # the whole area. Build a mosaic of all tiles intersecting the
         # catchment on the selected date, then clip to the buffered AOI.
         selected_start_date_img, selected_end_date_img = (
-            ee_functions.selected_date_range(selected_available_image_date)
+            ee_functions2.selected_date_range(selected_available_image_date)
         )
 
-        image_collection = ee_functions.get_available_images(
+        image_collection = ee_functions2.get_available_images(
             selected_fs_gdf,
             selected_start_date_img,
             selected_end_date_img,
@@ -401,11 +401,11 @@ def app():
             .copyProperties(image_for_date, ["system:time_start"])
         )
 
-        true_color_visparams = ee_functions.get_vis_params("True Color")
-        image_date = ee_functions.get_imagery_date(true_color_image)
+        true_color_visparams = ee_functions2.get_vis_params("True Color")
+        image_date = ee_functions2.get_imagery_date(true_color_image)
 
         m = geemap.Map(control_scale=True, draw_control=False, layer_control=False)
-        m.add_ee_layer = ee_functions.add_ee_layer.__get__(m)
+        m.add_ee_layer = ee_functions2.add_ee_layer.__get__(m)
 
         m.add_child(
             MeasureControl(
@@ -426,22 +426,22 @@ def app():
         # If a metric is selected, calculate index, classify, and show chart + legend
         if selected_index is not None:
             with st.spinner(f"Calculating {selected_index.lower()}...", show_time=True):
-                calculated_index_image = ee_functions.calculate_index(
+                calculated_index_image = ee_functions2.calculate_index(
                     selected_index, true_color_image
                 )
-                classified_index_image = ee_functions.classifiy_index_values(
+                classified_index_image = ee_functions2.classifiy_index_values(
                     selected_fs_gdf,
                     calculated_index_image,
                     selected_index,
                 )
 
-            selected_index_visparams = ee_functions.get_vis_params(selected_index)
-            legend_labels, legend_colors = ee_functions.legend_params(selected_index)
+            selected_index_visparams = ee_functions2.get_vis_params(selected_index)
+            legend_labels, legend_colors = ee_functions2.legend_params(selected_index)
 
-            fig_df = ee_functions.area_chart_df(
+            fig_df = ee_functions2.area_chart_df(
                 selected_fs_gdf, classified_index_image, selected_index
             )
-            chart = ee_functions.altair_chart(fig_df, selected_index)
+            chart = ee_functions2.altair_chart(fig_df, selected_index)
 
             with st.expander(f"View {selected_index} metrics..."):
                 with st.spinner("Calculating metrics...", show_time=True):
