@@ -7,7 +7,7 @@ import folium
 import ee
 import pandas as pd
 
-from apps import ee_functions, variables
+from apps import ee_functions2, variables
 
 
 # Folium/streamlit JSON serialization helpers
