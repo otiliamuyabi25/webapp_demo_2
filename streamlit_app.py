@@ -1,6 +1,6 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
-from apps import ce_app, access, sh_app, soil_app , ff_app, hb_app
+from apps import ce_app, access, sh_app, soil_app , ff_app, hb_app , fs_app
 
 access.ee_to_st()
 st.set_page_config(page_title="Streamlit Geospatial", layout="wide")
@@ -11,6 +11,7 @@ apps = [
     {"func": soil_app.app, "title": "Analysis", "icon": ":seedling:"},
     {"func": ff_app.app, "title": "Foundation Farm", "icon": ":leaf:"},
     {"func": hb_app.app, "title": "Hub Definition", "icon": ":seedling:"},
+    {"func": fs_app.app, "title": "FCA", "icon": ":seedling:"},
 ]
 
 titles = [app["title"] for app in apps]
