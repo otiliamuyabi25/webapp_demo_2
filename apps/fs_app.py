@@ -293,7 +293,7 @@ def app():
                 if selected_fs_gdf is None:
                     st.info("No geometry found for the selected FS catchment.")
                 else:
-                    image_collection = ee_function2s.get_available_images(
+                    image_collection = ee_functions2.get_available_images(
                         selected_fs_gdf,
                         selected_start_date,
                         selected_end_date,
