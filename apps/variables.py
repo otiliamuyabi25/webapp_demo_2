@@ -6,7 +6,7 @@ import datetime
 
 def get_farms_gdf():
     farms_gdf = gpd.read_file(r"data/vector/ce_farms.gpkg")
-    farms_gdf = farms_gdf[['farmer', 'crop', 'district', 'province', 'area_ha', 'geometry', 'year']]
+    farms_gdf = farms_gdf[['farmer','Classifica', 'crop', 'district', 'province', 'area_hectares', 'geometry', 'year']]
     return farms_gdf
 
 
